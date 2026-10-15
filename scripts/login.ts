@@ -8,7 +8,7 @@ import { join } from "node:path";
 (async () => {
   const profile = mkdtempSync(join(tmpdir(), "instacart-login-"));
   const ctx = await chromium.launchPersistentContext(profile, {
-    channel: "chrome", // real installed Chrome; falls back with a clear error if missing
+    channel: process.env.BROWSER_CHANNEL ?? "msedge", // real installed Edge (or set BROWSER_CHANNEL=chrome)
     headless: false,
     ignoreDefaultArgs: ["--enable-automation"],
     args: ["--disable-blink-features=AutomationControlled"],
