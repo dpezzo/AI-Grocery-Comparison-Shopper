@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "login": "tsx scripts/login.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -20,7 +21,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.1",
+    "playwright": "^1.64.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

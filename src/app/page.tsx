@@ -1,69 +1,185 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import { STORES, type CompareResult, type Product, type ShoppingItem, type StoreId } from "@/lib/types";
+
+const money = (n: number) => `$${n.toFixed(2)}`;
 
 export default function Home() {
+  const [list, setList] = useState("");
+  const [stores, setStores] = useState<StoreId[]>(Object.keys(STORES) as StoreId[]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [result, setResult] = useState<CompareResult | null>(null);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [picks, setPicks] = useState<Record<string, Product>>({});
+
+  // Re-group items by the (possibly user-swapped) chosen product's store.
+  const lists = (() => {
+    if (!result) return [];
+    const all = result.lists.flatMap((l) => l.items);
+    const by = new Map<StoreId, { item: ShoppingItem; p: Product }[]>();
+    for (const item of all) {
+      const p = picks[item.query] ?? item.best;
+      if (!p) continue;
+      by.set(p.store, [...(by.get(p.store) ?? []), { item, p }]);
+    }
+    return [...by.entries()].map(([store, rows]) => {
+      rows.sort((a, b) => a.item.deptOrder - b.item.deptOrder || a.item.query.localeCompare(b.item.query));
+      return { store, name: STORES[store].name, rows, total: rows.reduce((t, r) => t + r.p.price * r.item.qty, 0) };
+    });
+  })();
+  const grandTotal = lists.reduce((t, l) => t + l.total, 0);
+
+  const toggleStore = (s: StoreId) =>
+    setStores((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+
+  async function run() {
+    setLoading(true);
+    setError("");
+    setResult(null);
+    setChecked({});
+    setPicks({});
+    try {
+      const res = await fetch("/api/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ list, stores }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Request failed");
+      setResult(data);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="mx-auto max-w-3xl p-4 sm:p-8">
+      <h1 className="text-2xl font-bold">Grocery Price Compare</h1>
+      <p className="mt-1 text-sm text-neutral-500">
+        Paste your list (one item per line, or comma-separated). Prefix a number for quantity, e.g. &ldquo;2 milk&rdquo;.
+      </p>
+
+      <textarea
+        className="mt-4 h-40 w-full rounded-lg border border-neutral-300 p-3 dark:border-neutral-700 dark:bg-neutral-900"
+        placeholder={"milk\neggs\n2 bread\nbananas\nchicken breast"}
+        value={list}
+        onChange={(e) => setList(e.target.value)}
+      />
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(Object.keys(STORES) as StoreId[]).map((s) => (
+          <label
+            key={s}
+            className={`cursor-pointer rounded-full border px-3 py-1 text-sm ${
+              stores.includes(s) ? "border-green-600 bg-green-600 text-white" : "border-neutral-300"
+            }`}
+          >
+            <input type="checkbox" className="hidden" checked={stores.includes(s)} onChange={() => toggleStore(s)} />
+            {STORES[s].name}
+          </label>
+        ))}
+      </div>
+
+      <button
+        onClick={run}
+        disabled={loading || !list.trim() || !stores.length}
+        className="mt-4 rounded-lg bg-green-600 px-5 py-2 font-medium text-white disabled:opacity-50"
+      >
+        {loading ? "Comparing prices… (can take a minute)" : "Find best prices"}
+      </button>
+      {error && <p className="mt-3 text-red-600">{error}</p>}
+
+      {result && (
+        <section className="mt-8 space-y-6">
+          <div className="rounded-lg bg-green-50 p-4 text-green-900 dark:bg-green-950 dark:text-green-100">
+            <div className="text-lg font-semibold">Total: {money(grandTotal)}</div>
+            {result.singleStoreBest && result.singleStoreBest.total - grandTotal > 0.005 && (
+              <div className="text-sm">
+                Saves {money(result.singleStoreBest!.total - grandTotal)} vs. buying everything at {result.singleStoreBest.name} (
+                {money(result.singleStoreBest.total)}).
+              </div>
+            )}
+            {result.notFound.length > 0 && (
+              <div className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+                Not found anywhere: {result.notFound.join(", ")}
+              </div>
+            )}
+          </div>
+
+          {lists.map((l) => {
+            let lastDept = "";
+            return (
+              <div key={l.store} className="rounded-lg border border-neutral-300 dark:border-neutral-700">
+                <div className="flex items-baseline justify-between border-b border-neutral-300 p-3 dark:border-neutral-700">
+                  <h2 className="text-lg font-semibold">{l.name}</h2>
+                  <span className="text-sm text-neutral-500">
+                    {l.rows.length} items · {money(l.total)}
+                  </span>
+                </div>
+                <ul>
+                  {l.rows.map(({ item: it, p }) => {
+                    const id = `${l.store}:${it.query}`;
+                    const showDept = it.department !== lastDept;
+                    lastDept = it.department;
+                    return (
+                      <li key={id}>
+                        {showDept && (
+                          <div className="bg-neutral-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                            {it.department}
+                          </div>
+                        )}
+                        <label className="flex cursor-pointer items-start gap-3 p-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-5 w-5"
+                            checked={!!checked[id]}
+                            onChange={() => setChecked((c) => ({ ...c, [id]: !c[id] }))}
+                          />
+                          <span className={`flex-1 ${checked[id] ? "text-neutral-400 line-through" : ""}`}>
+                            <span className="font-medium">
+                              {it.qty > 1 ? `${it.qty}× ` : ""}
+                              {p.name}
+                            </span>
+                            <span className="block text-xs text-neutral-500">
+                              {p.size} · for &ldquo;{it.query}&rdquo;
+                            </span>
+                            {it.alternatives.length > 0 && (
+                              <select
+                                className="mt-1 max-w-full rounded border border-neutral-300 bg-transparent text-xs dark:border-neutral-700"
+                                value={p.url}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => {
+                                  const opts = [it.best!, ...it.alternatives];
+                                  const next = opts.find((o) => o.url === e.target.value);
+                                  if (next) setPicks((c) => ({ ...c, [it.query]: next }));
+                                }}
+                              >
+                                {[it.best!, ...it.alternatives].map((o) => (
+                                  <option key={o.url} value={o.url}>
+                                    {STORES[o.store].name}: {o.name} {o.size} {money(o.price)}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </span>
+                          <span className="font-mono">{money(p.price * it.qty)}</span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+          <p className="text-xs text-neutral-500">
+            Prices come from each store&apos;s Instacart storefront and may be higher than in-store shelf prices.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        </section>
+      )}
+    </main>
   );
 }
