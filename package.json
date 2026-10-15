@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "login": "tsx scripts/login.ts",
+    "import-edge": "tsx scripts/import-edge.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
