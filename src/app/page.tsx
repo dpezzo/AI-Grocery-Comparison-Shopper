@@ -13,6 +13,22 @@ export default function Home() {
   const [result, setResult] = useState<CompareResult | null>(null);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [picks, setPicks] = useState<Record<string, Product>>({});
+  // User-entered aisle numbers, keyed "store:department". Saved in this browser.
+  const [aisles, setAisles] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("aisles") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const setAisle = (key: string, v: string) =>
+    setAisles((cur) => {
+      const next = { ...cur, [key]: v };
+      try {
+        localStorage.setItem("aisles", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
   // Re-group items by the (possibly user-swapped) chosen product's store.
   const lists = (() => {
@@ -25,7 +41,17 @@ export default function Home() {
       by.set(p.store, [...(by.get(p.store) ?? []), { item, p }]);
     }
     return [...by.entries()].map(([store, rows]) => {
-      rows.sort((a, b) => a.item.deptOrder - b.item.deptOrder || a.item.query.localeCompare(b.item.query));
+      // Entered aisle numbers sort first (ascending); unnumbered departments follow in walk order.
+      const num = (r: { item: ShoppingItem }) => {
+        const n = parseFloat(aisles[`${store}:${r.item.department}`] ?? "");
+        return Number.isNaN(n) ? Infinity : n;
+      };
+      rows.sort(
+        (a, b) =>
+          (num(a) === num(b) ? 0 : num(a) < num(b) ? -1 : 1) ||
+          a.item.deptOrder - b.item.deptOrder ||
+          a.item.query.localeCompare(b.item.query),
+      );
       return { store, name: STORES[store].name, rows, total: rows.reduce((t, r) => t + r.p.price * r.item.qty, 0) };
     });
   })();
@@ -128,8 +154,18 @@ export default function Home() {
                     return (
                       <li key={id}>
                         {showDept && (
-                          <div className="bg-neutral-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                            {it.department}
+                          <div className="flex items-center justify-between bg-neutral-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+                            <span>{it.department}</span>
+                            <label className="flex items-center gap-1 normal-case">
+                              Aisle
+                              <input
+                                className="w-12 rounded border border-neutral-300 bg-transparent px-1 text-center dark:border-neutral-600"
+                                inputMode="decimal"
+                                placeholder="#"
+                                value={aisles[`${l.store}:${it.department}`] ?? ""}
+                                onChange={(e) => setAisle(`${l.store}:${it.department}`, e.target.value)}
+                              />
+                            </label>
                           </div>
                         )}
                         <label className="flex cursor-pointer items-start gap-3 p-3">
